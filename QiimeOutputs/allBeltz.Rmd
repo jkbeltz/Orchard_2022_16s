@@ -1,0 +1,1038 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+## Nov 2019		started reanalyzing to get ANCOM results
+
+```{r get started}
+
+library(multcomp)
+library(dunn.test)
+library(rcompanion)
+library(tidyr)
+library(ggplot2)
+library(gridExtra)
+library(reshape)
+library(ade4)
+library(grid)
+library(gtable)
+library(multcompView)
+library(splitstackshape)
+library(readxl)
+library(reshape2)
+library(survival)
+library(maps)
+library(dplyr)
+library(vegan)
+library(cowplot)
+library(devtools)
+library(tyRa)
+library(phyloseq)
+library(minpack.lm)
+library(stats4)
+library(Hmisc)
+#install.packages("minpack.lm")
+#install.packages("stats4")
+#install_github("DanielSprockett/tyRa")
+#source(file = '/Users/jmc257/Dropbox/sequencing/16sscripts/make_taxon_plots_condense_2var_0.0.2.R')
+source(file = '~/Dropbox/sequencing/16sscripts/ancom_tests.R')
+#source(file = '/Users/jmc257/Dropbox/sequencing/16sscripts/pcoa_2var_0.0.2.R')
+source(file = '~/Dropbox/sequencing/16sscripts/g_legend.R')
+source(file = '~/Dropbox/sequencing/16sscripts/FrederickHuangLin-ANCOM-c3d6f98/scripts/ancom_v2.0.R')
+source(file = '~/Dropbox/sequencing/16sscripts/pcoa_0.0.3.R')
+source(file = '~/Dropbox/sequencing/16sscripts/make_taxon_plot_0.0.3.R')
+source(file = '~/Dropbox/sequencing/16sscripts/calculate_correlations.R')
+source(file = '~/Dropbox/sequencing/16sscripts/make_distance_plot_0.0.3.R')
+source(file = '~/Dropbox/sequencing/16sscripts/make_permanova_tables.R')
+source(file = '~/Dropbox/sequencing/16sscripts/calculate_correlations.R')
+
+make_taxon_plot_matrix <- function(file_path) {
+  otumat = read.table(paste0('core-metrics-results-',filepath,'/rarefied_table.txt'), comment.char = "", header=T, fill=T, sep = "\t", skip = 1)
+  rownames(otumat) <- otumat$X.OTU.ID
+  otumat <- otumat %>% dplyr::select(-X.OTU.ID)
+  otumat <- as.matrix(otumat)
+  otumat
+}
+
+make_taxonomy_forR <- function(taxon_file_path) {
+  taxa_table <- read.table(paste0(taxon_file_path,"/taxonomy.tsv"), sep = "\t", header = T) %>% 
+    tidyr::separate(col = Taxon, into = c("kingdom","phylum","class","order","family","genus","species"), remove = T, sep = ";") %>%
+    dplyr::select(-Confidence)
+  write.csv(taxa_table, file = paste0(taxon_file_path,"/taxonomy_forR.csv"), quote = F, sep = ",", row.names = F)
+    }
+
+# compare midgut vs head, find out what's there...
+## find out which body sites gave few amplicons...
+## compare to previosu studies, too
+```
+
+## first bash
+```{bash}
+
+conda activate qiime2-2022.11
+
+cd ~/Dropbox/sequencing/2023-04-Beltz1to4/Fastq/
+for FILE in *; do cp $FILE ~/Dropbox/sequencing/2023-allbeltz/Fastq/run1_""$FILE; done
+
+cd ~/Dropbox/sequencing/2023-04-Beltzrun2/Fastq/
+for FILE in *; do cp $FILE ~/Dropbox/sequencing/2023-allbeltz/Fastq/run2_""$FILE; done
+
+cd ~/Dropbox/sequencing/2023-05-Beltzrun3/Fastq/
+for FILE in *; do cp $FILE ~/Dropbox/sequencing/2023-allbeltz/Fastq/run3_""$FILE; done
+
+name=allbeltz
+mapper=mapper_allbeltz.txt
+seqsdir=Fastq
+
+cd ~/Dropbox/sequencing/2023-allbeltz
+
+	## import the sequences
+qiime tools import \
+	--type 'SampleData[PairedEndSequencesWithQuality]' \
+	--input-path $seqsdir \
+	--input-format 'CasavaOneEightSingleLanePerSampleDirFmt' \
+	--output-path demux-paired-end-$name.qza
+
+qiime demux summarize \
+  --i-data demux-paired-end-$name.qza \
+  --o-visualization demux-$name.qzv
+ 
+# this step run on the labchaston server using qiime2-2021.4 
+#qiime dada2 denoise-paired \
+#  --i-demultiplexed-seqs demux-paired-end-$name"".qza \
+#  --p-trim-left-f 1 \
+#  --p-trim-left-r 1 \
+#  --p-trunc-len-f 220 \
+#  --p-trunc-len-r 160 \
+#  --o-table table-$name"".qza \
+#  --o-representative-sequences rep-seqs-$name"".qza \
+#  --o-denoising-stats denoising-stats-$name"".qza \
+#  --p-n-threads 16
+
+# the 
+qiime feature-table summarize \
+--i-table table-$name"".qza \
+--o-visualization table-$name"".qzv \
+--m-sample-metadata-file $mapper
+
+qiime feature-classifier classify-sklearn \
+  --i-classifier gg-13-8-99-515-806-nb-classifier.qza \
+  --i-reads rep-seqs-$name"".qza \
+  --o-classification taxonomy-$name"".qza
+
+qiime metadata tabulate \
+  --m-input-file taxonomy-$name"".qza \
+  --o-visualization taxonomy-$name"".qzv
+
+qiime tools export \
+--input-path taxonomy-$name"".qza \
+--output-path taxonomy-$name""
+
+## make a tree
+qiime phylogeny align-to-tree-mafft-fasttree \
+  --i-sequences rep-seqs-$name"".qza \
+  --o-alignment aligned-rep-seqs-$name"".qza \
+  --o-masked-alignment masked-aligned-rep-seqs-$name"".qza \
+  --o-tree unrooted-tree-$name"".qza \
+  --o-rooted-tree rooted-tree-$name"".qza
+  
+qiime tools export \
+--input-path rep-seqs-$name"".qza \
+--output-path rep-seqs-$name""
+
+qiime tools export \
+--input-path rooted-tree-$name"".qza \
+--output-path rooted-tree-$name""
+
+
+# filter out unwanted reads
+qiime taxa filter-table \
+--i-table table-$name"".qza \
+--i-taxonomy taxonomy-$name"".qza \
+--p-exclude Archaea,Chloroplast,Mitochondria,Wolbachia,Rickettsia \
+--o-filtered-table table-$name""_noWR.qza
+
+qiime tools export \
+--input-path table-$name""_noWR.qza \
+--output-path table-$name""_noWR
+
+biom convert -i table-$name""/feature-table.biom -o rarefied_table-$name"".txt --to-tsv
+
+qiime feature-table summarize \
+--i-table table-$name""_noWR.qza \
+--o-visualization table-$name""_noWR.qzv \
+--m-sample-metadata-file $mapper
+
+
+## r code
+make_taxonomy_forR("~/Dropbox/sequencing/2023-04-Beltz1to4/taxonomy-beltz1to4/")
+
+qiime taxa barplot \
+  --i-table table-$name""_noWR.qza \
+  --i-taxonomy taxonomy-$name"".qza \
+  --m-metadata-file $mapper \
+  --o-visualization taxa-bar-plots-$name"".qzv
+
+
+```
+
+```{r}
+damselfly2 <- read.table('~/Dropbox/sequencing/2022-10-damselfly2/damselfly2_mapper_v2.tsv', sep = "\t", fill = T, comment.char = "", header = T)
+damselfly2[1,]
+
+table(damselfly2$bodysite)
+table(damselfly2$Sample_Plate)
+table(damselfly2$Body.Site)
+table(damselfly2$Location)
+table(damselfly2$Water.Type)
+table(damselfly2$Sex)
+table(damselfly2$Genus.species)
+table(damselfly2$Family)
+table(damselfly2$Suborder)
+```
+
+## second bash
+```{sh}
+
+cd ~/Dropbox/sequencing/2023-04-Beltz1to4
+name=beltz1to4
+mapper=mapper-beltz1to4b.tsv
+seqsdir=Fastq
+
+## check if the new reads match
+bash ~/Dropbox/sequencing/16sscripts/standard_qiime3.sh $name""_noWR $name pesticide 3500 $mapper "experiment='21Pesticide'" yes
+bash ~/Dropbox/sequencing/16sscripts/standard_qiime3.sh $name"" $name pesticide_wW 3500 $mapper "experiment='21Pesticide'" yes
+
+bash ~/Dropbox/sequencing/16sscripts/standard_qiime3.sh $name""_noWR $name LCD 1180 $mapper "experiment='22LCD'" yes
+bash ~/Dropbox/sequencing/16sscripts/standard_qiime3.sh $name"" $name LCD_wW 2500 $mapper "experiment='22LCD'" yes
+
+# making a column of wolb + and -, then assigning that as a covariate in case wolbachia influences micorbiomta, which it probably does
+# 
+```
+
+## pesticide
+```{r}
+
+setwd('~/Dropbox/sequencing/2023-04-Beltz1to4/')
+
+file_path <- "pesticide"
+mapper_file <- "mapper-beltz1to4b.tsv"
+
+  ## unweighted
+flies_unweighted <- read.table(paste('core-metrics-results-',file_path,'/unweighted_unifrac_distance_matrix/distance-matrix.tsv',sep=""), header=T, sep="\t") %>% mutate(X=as.character(X))
+flies_unweighted_dm <- as.dist(flies_unweighted[,2:dim(flies_unweighted)[2]])
+flies_unifrac_table <- flies_unweighted %>% dplyr::select(X) %>% left_join(read.table(mapper_file,comment.char = "", header=T, fill=T, sep="\t"), by=c("X"="X.SampleID")) %>% droplevels()
+
+str(flies_unifrac_table)
+table(list(flies_unifrac_table$Population)) # no duplicates
+table(list(flies_unifrac_table$PopCode)) # 5-6 reps each
+table(list(flies_unifrac_table$SampleData)) # f m
+table(list(flies_unifrac_table$Timepoint)) #
+table(list(flies_unifrac_table$TreatmentInoculum)) #
+table(list(flies_unifrac_table$CollectionTreatment)) #
+table(list(flies_unifrac_table$RepID)) #
+table(list(flies_unifrac_table$Experiment)) #
+table(list(flies_unifrac_table$Plate)) #
+
+make_permanova_tables(file_path = file_path, mapper_file = mapper_file, flies_unifrac_table = flies_unifrac_table, pform = "~ Timepoint * TreatmentInoculum")
+
+
+###
+# Make taxon plots
+###
+
+		## taxon plot 
+map_path = "-beltz1to4" # taxonomy folder extension
+plotvarnames = c("Timepoint","TreatmentInoculum") 
+mapper_file = mapper_file 
+taxonomic_level="genus"
+rpa_in_chart = .015
+read_depth = 3500
+legend_position = "bottom"
+sort_x_axis = "Timepoint"
+x_cluster = "X.SampleID" #
+
+ptp <- prep_taxon_plot(file_path = file_path, map_path = map_path, plotvarnames = plotvarnames, mapper_file = mapper_file, taxonomic_level=taxonomic_level, rpa_in_chart = rpa_in_chart, read_depth = read_depth, legend_position=legend_position,  sort_x_axis = sort_x_axis,  x_cluster = x_cluster)
+
+x_cluster <- "X.SampleID"
+plot_color <- c("black","brown", "light green","green","red","yellow")
+plot_order <- ptp[[3]]$shortname[c(1,3,4,2,5)]
+facet_formula <- ". ~ Timepoint * TreatmentInoculum"
+sort_x_axis <- "Timepoint"
+legend_position = "bottom"
+
+base_plot <- make_taxon_plot(ptp = ptp, plot_color = plot_color, facet_formula = facet_formula, sort_x_axis = sort_x_axis, x_cluster = x_cluster, plotvarnames = plotvarnames, legend_position = legend_position, read_depth = read_depth, plot_order = plot_order)
+base_plot
+ggsave(paste0('core-metrics-results-',file_path,"/",file_path,"_taxon.jpg"), bg = "white")
+
+
+```
+
+## pesticide wW
+```{r}
+
+setwd('~/Dropbox/sequencing/2023-04-Beltz1to4/')
+
+file_path <- "pesticide_wW"
+mapper_file <- "mapper-beltz1to4b.tsv"
+
+  ## unweighted
+flies_unweighted <- read.table(paste('core-metrics-results-',file_path,'/unweighted_unifrac_distance_matrix/distance-matrix.tsv',sep=""), header=T, sep="\t") %>% mutate(X=as.character(X))
+flies_unweighted_dm <- as.dist(flies_unweighted[,2:dim(flies_unweighted)[2]])
+flies_unifrac_table <- flies_unweighted %>% dplyr::select(X) %>% left_join(read.table(mapper_file,comment.char = "", header=T, fill=T, sep="\t"), by=c("X"="X.SampleID")) %>% droplevels()
+
+str(flies_unifrac_table)
+table(list(flies_unifrac_table$Population)) # no duplicates
+table(list(flies_unifrac_table$PopCode)) # 5-6 reps each
+table(list(flies_unifrac_table$SampleData)) # f m
+table(list(flies_unifrac_table$Timepoint)) #
+table(list(flies_unifrac_table$TreatmentInoculum)) #
+table(list(flies_unifrac_table$CollectionTreatment)) #
+table(list(flies_unifrac_table$RepID)) #
+table(list(flies_unifrac_table$Experiment)) #
+table(list(flies_unifrac_table$Plate)) #
+
+make_permanova_tables(file_path = file_path, mapper_file = mapper_file, flies_unifrac_table = flies_unifrac_table, pform = "~ Timepoint * TreatmentInoculum")
+
+
+###
+# Make taxon plots
+###
+
+		## taxon plot 
+map_path = "-beltz1to4" # taxonomy folder extension
+plotvarnames = c("Timepoint","TreatmentInoculum") 
+mapper_file = mapper_file 
+taxonomic_level="genus"
+rpa_in_chart = .015
+read_depth = 3500
+legend_position = "bottom"
+sort_x_axis = "Timepoint"
+x_cluster = "X.SampleID" #
+
+ptp <- prep_taxon_plot(file_path = file_path, map_path = map_path, plotvarnames = plotvarnames, mapper_file = mapper_file, taxonomic_level=taxonomic_level, rpa_in_chart = rpa_in_chart, read_depth = read_depth, legend_position=legend_position,  sort_x_axis = sort_x_axis,  x_cluster = x_cluster)
+
+x_cluster <- "X.SampleID"
+plot_color <- c("black","brown", "light green","green","red","yellow","magenta")
+plot_order <- ptp[[3]]$shortname[c(1,4,5,2,6,3)]
+facet_formula <- ". ~ Timepoint * TreatmentInoculum"
+sort_x_axis <- "Timepoint"
+legend_position = "bottom"
+
+base_plot <- make_taxon_plot(ptp = ptp, plot_color = plot_color, facet_formula = facet_formula, sort_x_axis = sort_x_axis, x_cluster = x_cluster, plotvarnames = plotvarnames, legend_position = legend_position, read_depth = read_depth, plot_order = plot_order)
+base_plot
+ggsave(paste0('core-metrics-results-',file_path,"/",file_path,"_taxon.jpg"), bg = "white")
+
+
+```
+
+## LCD
+```{r}
+
+setwd('~/Dropbox/sequencing/2023-04-Beltz1to4/')
+
+file_path <- "LCD"
+mapper_file <- "mapper-beltz1to4b.tsv"
+
+  ## unweighted
+flies_unweighted <- read.table(paste('core-metrics-results-',file_path,'/unweighted_unifrac_distance_matrix/distance-matrix.tsv',sep=""), header=T, sep="\t") %>% mutate(X=as.character(X))
+flies_unweighted_dm <- as.dist(flies_unweighted[,2:dim(flies_unweighted)[2]])
+flies_unifrac_table <- flies_unweighted %>% dplyr::select(X) %>% left_join(read.table(mapper_file,comment.char = "", header=T, fill=T, sep="\t"), by=c("X"="X.SampleID")) %>% droplevels()
+
+str(flies_unifrac_table)
+table(list(flies_unifrac_table$Population)) # no duplicates
+table(list(flies_unifrac_table$PopCode)) # 5-6 reps each
+table(list(flies_unifrac_table$SampleData)) # f m
+table(list(flies_unifrac_table$Timepoint)) #
+table(list(flies_unifrac_table$TreatmentInoculum)) #
+table(list(flies_unifrac_table$CollectionTreatment)) #
+table(list(flies_unifrac_table$RepID)) #
+table(list(flies_unifrac_table$Experiment)) #
+table(list(flies_unifrac_table$Plate)) #
+
+make_permanova_tables(file_path = file_path, mapper_file = mapper_file, flies_unifrac_table = flies_unifrac_table, pform = "~ Timepoint * TreatmentInoculum + CollectionTreatment + RepID")
+
+
+###
+# Make taxon plots
+###
+
+		## taxon plot 
+map_path = "-beltz1to4" # taxonomy folder extension
+plotvarnames = c("Timepoint","TreatmentInoculum","CollectionTreatment","RepID") 
+mapper_file = mapper_file 
+taxonomic_level="genus"
+rpa_in_chart = .025
+read_depth = 1180
+legend_position = "bottom"
+sort_x_axis = "Timepoint"
+x_cluster = "X.SampleID" #
+
+ptp <- prep_taxon_plot(file_path = file_path, map_path = map_path, plotvarnames = plotvarnames, mapper_file = mapper_file, taxonomic_level=taxonomic_level, rpa_in_chart = rpa_in_chart, read_depth = read_depth, legend_position=legend_position,  sort_x_axis = sort_x_axis,  x_cluster = x_cluster)
+
+x_cluster <- "X.SampleID"
+plot_color <- c("black","yellow", "brown","magenta","green","purple","blue","cyan","red")
+plot_order <- ptp[[3]]$shortname[c(1,2,8,7,3,4,5,6)]
+facet_formula <- ". ~ Timepoint * TreatmentInoculum *CollectionTreatment"
+sort_x_axis <- "Timepoint"
+legend_position = "bottom"
+
+base_plot <- make_taxon_plot(ptp = ptp, plot_color = plot_color, facet_formula = facet_formula, sort_x_axis = sort_x_axis, x_cluster = x_cluster, plotvarnames = plotvarnames, legend_position = legend_position, read_depth = read_depth, plot_order = plot_order)
+base_plot + theme(strip.text.x = element_text(angle = 90))
+ggsave(paste0('core-metrics-results-',file_path,"/",file_path,"_taxon.jpg"), bg = "white", h = 14, w=20)
+
+
+```
+
+
+```{r}
+map_path = "-joe" # taxonomy folder extension
+plotvarnames = c("fruit","time") 
+mapper_file = mapper_file 
+taxonomic_level="order"
+rpa_in_chart = .015
+read_depth = 1000
+legend_position = "bottom"
+sort_x_axis = "fruit"
+x_cluster = "X.SampleID" #
+
+ptp <- prep_taxon_plot(file_path = file_path, map_path = map_path, plotvarnames = plotvarnames, mapper_file = mapper_file, taxonomic_level=taxonomic_level, rpa_in_chart = rpa_in_chart, read_depth = read_depth, legend_position=legend_position,  sort_x_axis = sort_x_axis,  x_cluster = x_cluster)
+
+x_cluster <- "X.SampleID"
+plot_color <- c("black","brown","dark green","light green","blue","red")
+plot_order <- ptp[[3]]$shortname[c(3,4,5,1,2)]
+facet_formula <- ". ~ fruit * time"
+sort_x_axis <- "fruit"
+legend_position = "bottom"
+
+base_plot <- make_taxon_plot(ptp = ptp, plot_color = plot_color, facet_formula = facet_formula, sort_x_axis = sort_x_axis, x_cluster = x_cluster, plotvarnames = plotvarnames, legend_position = legend_position, read_depth = read_depth, plot_order = plot_order)
+base_plot
+ggsave(paste0('core-metrics-results-',file_path,"/",file_path,"_taxon.jpg"), bg = "white")
+
+```
+
+## mm_noW
+```{r}
+
+setwd('~/Dropbox/sequencing/2023-02-JoeRyan/')
+getwd()
+
+file_path <- "mm_noW"
+mapper_file <- "joe_mapper.tsv"
+
+  ## unweighted
+flies_unweighted <- read.table(paste('core-metrics-results-',file_path,'/unweighted_unifrac_distance_matrix/distance-matrix.tsv',sep=""), header=T, sep="\t") %>% mutate(X=as.character(X))
+flies_unweighted_dm <- as.dist(flies_unweighted[,2:dim(flies_unweighted)[2]])
+flies_unifrac_table <- flies_unweighted %>% dplyr::select(X) %>% left_join(read.table(mapper_file,comment.char = "", header=T, fill=T, sep="\t"), by=c("X"="X.SampleID")) %>% droplevels()
+
+str(flies_unifrac_table)
+table(list(flies_unifrac_table$pile)) # no duplicates
+table(list(flies_unifrac_table$sex)) # 5-6 reps each
+table(list(flies_unifrac_table$species)) # f m
+table(list(flies_unifrac_table$date)) #
+
+make_permanova_tables(file_path = file_path, mapper_file = mapper_file, flies_unifrac_table = flies_unifrac_table, pform = "~ fruit/pile * time")
+
+#make_permanova_tables(file_path = file_path, mapper_file = mapper_file, flies_unifrac_table = flies_unifrac_table, pform = "~ bodysite * Location * Genus.species")
+###
+# Make taxon plots
+###
+
+		## taxon plot 
+map_path = "-joe" # taxonomy folder extension
+plotvarnames = c("pile","time") 
+mapper_file = mapper_file 
+taxonomic_level="order"
+rpa_in_chart = .025
+read_depth = 1000
+legend_position = "bottom"
+sort_x_axis = "pile"
+x_cluster = "X.SampleID" #
+
+ptp <- prep_taxon_plot(file_path = file_path, map_path = map_path, plotvarnames = plotvarnames, mapper_file = mapper_file, taxonomic_level=taxonomic_level, rpa_in_chart = rpa_in_chart, read_depth = read_depth, legend_position=legend_position,  sort_x_axis = sort_x_axis,  x_cluster = x_cluster)
+
+x_cluster <- "X.SampleID"
+plot_color <- c("black","dark green","light green","blue","red")
+plot_order <- ptp[[3]]$shortname[c(3,4,1,2)]
+facet_formula <- ". ~ pile * time"
+sort_x_axis <- "pile"
+legend_position = "bottom"
+
+base_plot <- make_taxon_plot(ptp = ptp, plot_color = plot_color, facet_formula = facet_formula, sort_x_axis = sort_x_axis, x_cluster = x_cluster, plotvarnames = plotvarnames, legend_position = legend_position, read_depth = read_depth, plot_order = plot_order)
+base_plot
+ggsave(paste0('core-metrics-results-',file_path,"/",file_path,"_taxon.jpg"), bg = "white")
+
+
+map_path = "-joe" # taxonomy folder extension
+plotvarnames = c("fruit","time") 
+mapper_file = mapper_file 
+taxonomic_level="order"
+rpa_in_chart = .025
+read_depth = 1000
+legend_position = "bottom"
+sort_x_axis = "fruit"
+x_cluster = "X.SampleID" #
+
+ptp <- prep_taxon_plot(file_path = file_path, map_path = map_path, plotvarnames = plotvarnames, mapper_file = mapper_file, taxonomic_level=taxonomic_level, rpa_in_chart = rpa_in_chart, read_depth = read_depth, legend_position=legend_position,  sort_x_axis = sort_x_axis,  x_cluster = x_cluster)
+
+x_cluster <- "X.SampleID"
+plot_color <- c("black","dark green","light green","red","blue")
+plot_order <- ptp[[3]]$shortname[c(3,4,2,1)]
+facet_formula <- ". ~ fruit * time"
+sort_x_axis <- "fruit"
+legend_position = "bottom"
+
+base_plot <- make_taxon_plot(ptp = ptp, plot_color = plot_color, facet_formula = facet_formula, sort_x_axis = sort_x_axis, x_cluster = x_cluster, plotvarnames = plotvarnames, legend_position = legend_position, read_depth = read_depth, plot_order = plot_order)
+base_plot
+ggsave(paste0('core-metrics-results-',file_path,"/",file_path,"_taxon.jpg"), bg = "white")
+
+```
+
+## ancom
+```{r}
+
+###
+# ANCOM
+###
+rm(melted_table, melted_table_no0, mt2)
+file_path <- "mm_noW"
+#mapper_file <- "MO.FUN.Metadata_CJR_7.5.2022_JMC.txt"
+var1 = "time"
+var2 = "fruit"
+var3 = "pile"
+var4 = "time"
+the_id = "X.SampleID"
+newcol <- "newcol"
+the_id <- "X.SampleID"
+map_path = "-joe"
+
+main.var="time"
+adj.formula= "fruit + pile"
+random.formula = NULL#"~1|Sampling_Date"
+multcorr="none"
+sig=0.05
+prev.cut=0.5
+Group = "time"
+
+taxonomyrun <- c("phylum","class","order","family","genus","species","X.OTU.ID")
+for (i in taxonomyrun[1:7]) {
+  try(make_ancom2_plots(file_path, map_path=map_path, mapper_file=mapper_file, taxonomic_level=i,var1=var1,var2=var2,var3=var3,var4 = var4,newcol="newcol", the_id = "X.SampleID", main.var=main.var, adj.formula=adj.formula, random.formula = random.formula, repeat.var = repeat.var, multcorr=multcorr, sig=sig, prev.cut=prev.cut, Group = Group))
+}
+```
+
+## mm_noW
+```{r}
+
+setwd('~/Dropbox/sequencing/2023-02-JoeRyan/')
+getwd()
+
+file_path <- "f_noW"
+mapper_file <- "joe_mapper.tsv"
+
+  ## unweighted
+flies_unweighted <- read.table(paste('core-metrics-results-',file_path,'/unweighted_unifrac_distance_matrix/distance-matrix.tsv',sep=""), header=T, sep="\t") %>% mutate(X=as.character(X))
+flies_unweighted_dm <- as.dist(flies_unweighted[,2:dim(flies_unweighted)[2]])
+flies_unifrac_table <- flies_unweighted %>% dplyr::select(X) %>% left_join(read.table(mapper_file,comment.char = "", header=T, fill=T, sep="\t"), by=c("X"="X.SampleID")) %>% droplevels()
+
+str(flies_unifrac_table)
+table(list(flies_unifrac_table$pile)) # no duplicates
+table(list(flies_unifrac_table$sex)) # 5-6 reps each
+table(list(flies_unifrac_table$fruit)) # f m
+table(list(flies_unifrac_table$species)) # f m
+table(list(flies_unifrac_table$date)) #
+
+make_permanova_tables(file_path = file_path, mapper_file = mapper_file, flies_unifrac_table = flies_unifrac_table, pform = "~ fruit/pile * time")
+
+#make_permanova_tables(file_path = file_path, mapper_file = mapper_file, flies_unifrac_table = flies_unifrac_table, pform = "~ bodysite * Location * Genus.species")
+###
+# Make taxon plots
+###
+
+		## taxon plot 
+map_path = "-joe" # taxonomy folder extension
+plotvarnames = c("pile","time") 
+mapper_file = mapper_file 
+taxonomic_level="order"
+rpa_in_chart = .025
+read_depth = 1000
+legend_position = "bottom"
+sort_x_axis = "pile"
+x_cluster = "X.SampleID" #
+
+ptp <- prep_taxon_plot(file_path = file_path, map_path = map_path, plotvarnames = plotvarnames, mapper_file = mapper_file, taxonomic_level=taxonomic_level, rpa_in_chart = rpa_in_chart, read_depth = read_depth, legend_position=legend_position,  sort_x_axis = sort_x_axis,  x_cluster = x_cluster)
+
+x_cluster <- "X.SampleID"
+plot_color <- c("black","dark green","blue","red")
+plot_order <- ptp[[3]]$shortname[c(3,1,2)]
+facet_formula <- ". ~ pile * time"
+sort_x_axis <- "pile"
+legend_position = "bottom"
+
+base_plot <- make_taxon_plot(ptp = ptp, plot_color = plot_color, facet_formula = facet_formula, sort_x_axis = sort_x_axis, x_cluster = x_cluster, plotvarnames = plotvarnames, legend_position = legend_position, read_depth = read_depth, plot_order = plot_order)
+base_plot
+ggsave(paste0('core-metrics-results-',file_path,"/",file_path,"_taxon.jpg"), bg = "white")
+
+
+###
+# ANCOM
+###
+rm(melted_table, melted_table_no0, mt2)
+#mapper_file <- "MO.FUN.Metadata_CJR_7.5.2022_JMC.txt"
+var1 = "time"
+var2 = "fruit"
+var3 = "pile"
+var4 = "time"
+the_id = "X.SampleID"
+newcol <- "newcol"
+the_id <- "X.SampleID"
+map_path = "-joe"
+
+main.var="time"
+adj.formula= "fruit + pile"
+random.formula = NULL#"~1|Sampling_Date"
+multcorr="BH"
+sig=0.05
+prev.cut=0.9
+Group = "time"
+
+taxonomyrun <- c("phylum","class","order","family","genus","species","X.OTU.ID")
+for (i in taxonomyrun[1:7]) {
+  try(make_ancom2_plots(file_path, map_path=map_path, mapper_file=mapper_file, taxonomic_level=i,var1=var1,var2=var2,var3=var3,var4 = var4,newcol="newcol", the_id = "X.SampleID", main.var=main.var, adj.formula=adj.formula, random.formula = random.formula, repeat.var = repeat.var, multcorr=multcorr, sig=sig, prev.cut=prev.cut, Group = Group))
+}
+```
+
+## mmA_noW
+```{r}
+
+setwd('~/Dropbox/sequencing/2023-02-JoeRyan/')
+getwd()
+
+file_path <- "mmA_noW"
+mapper_file <- "joe_mapper.tsv"
+
+  ## unweighted
+flies_unweighted <- read.table(paste('core-metrics-results-',file_path,'/unweighted_unifrac_distance_matrix/distance-matrix.tsv',sep=""), header=T, sep="\t") %>% mutate(X=as.character(X))
+flies_unweighted_dm <- as.dist(flies_unweighted[,2:dim(flies_unweighted)[2]])
+flies_unifrac_table <- flies_unweighted %>% dplyr::select(X) %>% left_join(read.table(mapper_file,comment.char = "", header=T, fill=T, sep="\t"), by=c("X"="X.SampleID")) %>% droplevels()
+
+str(flies_unifrac_table)
+table(list(flies_unifrac_table$pile)) # no duplicates
+table(list(flies_unifrac_table$sex)) # 5-6 reps each
+table(list(flies_unifrac_table$fruit)) # f m
+table(list(flies_unifrac_table$species)) # f m
+table(list(flies_unifrac_table$date)) #
+
+make_permanova_tables(file_path = file_path, mapper_file = mapper_file, flies_unifrac_table = flies_unifrac_table, pform = "~ pile * time")
+
+#make_permanova_tables(file_path = file_path, mapper_file = mapper_file, flies_unifrac_table = flies_unifrac_table, pform = "~ bodysite * Location * Genus.species")
+###
+# Make taxon plots
+###
+
+		## taxon plot 
+map_path = "-joe" # taxonomy folder extension
+plotvarnames = c("pile","time") 
+mapper_file = mapper_file 
+taxonomic_level="family"
+rpa_in_chart = .015
+read_depth = 500
+legend_position = "bottom"
+sort_x_axis = "pile"
+x_cluster = "X.SampleID" #
+
+ptp <- prep_taxon_plot(file_path = file_path, map_path = map_path, plotvarnames = plotvarnames, mapper_file = mapper_file, taxonomic_level=taxonomic_level, rpa_in_chart = rpa_in_chart, read_depth = read_depth, legend_position=legend_position,  sort_x_axis = sort_x_axis,  x_cluster = x_cluster)
+
+x_cluster <- "X.SampleID"
+plot_color <- c("black","dark green","light green","cyan","red","purple")
+plot_order <- ptp[[3]]$shortname[c(4,5,1,3,2)]
+facet_formula <- ". ~ time"
+sort_x_axis <- "time"
+legend_position = "bottom"
+
+base_plot <- make_taxon_plot(ptp = ptp, plot_color = plot_color, facet_formula = facet_formula, sort_x_axis = sort_x_axis, x_cluster = x_cluster, plotvarnames = plotvarnames, legend_position = legend_position, read_depth = read_depth, plot_order = plot_order)
+base_plot
+ggsave(paste0('core-metrics-results-',file_path,"/",file_path,"_taxon.jpg"), bg = "white")
+
+
+###
+# ANCOM
+###
+rm(melted_table, melted_table_no0, mt2)
+#mapper_file <- "MO.FUN.Metadata_CJR_7.5.2022_JMC.txt"
+var1 = "time"
+var2 = "fruit"
+var3 = "pile"
+var4 = "time"
+the_id = "X.SampleID"
+newcol <- "newcol"
+the_id <- "X.SampleID"
+map_path = "-joe"
+
+main.var="time"
+adj.formula= NULL #"pile"
+random.formula = "~1|pile" #NULL#"~1|Sampling_Date"
+multcorr="BH"
+sig=0.05
+prev.cut=0.7
+Group = "time"
+
+taxonomyrun <- c("phylum","class","order","family","genus","species","X.OTU.ID")
+for (i in taxonomyrun[1:7]) {
+  try(make_ancom2_plots(file_path, map_path=map_path, mapper_file=mapper_file, taxonomic_level=i,var1=var1,var2=var2,var3=var3,var4 = var4,newcol="newcol", the_id = "X.SampleID", main.var=main.var, adj.formula=adj.formula, random.formula = random.formula, repeat.var = repeat.var, multcorr=multcorr, sig=sig, prev.cut=prev.cut, Group = Group))
+}
+
+
+```
+
+## mmP_noW
+```{r}
+
+setwd('~/Dropbox/sequencing/2023-02-JoeRyan/')
+getwd()
+
+file_path <- "mmP_noW"
+mapper_file <- "joe_mapper.tsv"
+
+  ## unweighted
+flies_unweighted <- read.table(paste('core-metrics-results-',file_path,'/unweighted_unifrac_distance_matrix/distance-matrix.tsv',sep=""), header=T, sep="\t") %>% mutate(X=as.character(X))
+flies_unweighted_dm <- as.dist(flies_unweighted[,2:dim(flies_unweighted)[2]])
+flies_unifrac_table <- flies_unweighted %>% dplyr::select(X) %>% left_join(read.table(mapper_file,comment.char = "", header=T, fill=T, sep="\t"), by=c("X"="X.SampleID")) %>% droplevels()
+
+str(flies_unifrac_table)
+table(list(flies_unifrac_table$pile)) # no duplicates
+table(list(flies_unifrac_table$sex)) # 5-6 reps each
+table(list(flies_unifrac_table$fruit)) # f m
+table(list(flies_unifrac_table$species)) # f m
+table(list(flies_unifrac_table$date)) #
+
+make_permanova_tables(file_path = file_path, mapper_file = mapper_file, flies_unifrac_table = flies_unifrac_table, pform = "~ pile * time")
+
+#make_permanova_tables(file_path = file_path, mapper_file = mapper_file, flies_unifrac_table = flies_unifrac_table, pform = "~ bodysite * Location * Genus.species")
+###
+# Make taxon plots
+###
+
+		## taxon plot 
+map_path = "-joe" # taxonomy folder extension
+plotvarnames = c("pile","time") 
+mapper_file = mapper_file 
+taxonomic_level="order"
+rpa_in_chart = .025
+read_depth = 1000
+legend_position = "bottom"
+sort_x_axis = "pile"
+x_cluster = "X.SampleID" #
+
+ptp <- prep_taxon_plot(file_path = file_path, map_path = map_path, plotvarnames = plotvarnames, mapper_file = mapper_file, taxonomic_level=taxonomic_level, rpa_in_chart = rpa_in_chart, read_depth = read_depth, legend_position=legend_position,  sort_x_axis = sort_x_axis,  x_cluster = x_cluster)
+
+x_cluster <- "X.SampleID"
+plot_color <- c("black","dark green","blue","red")
+plot_order <- ptp[[3]]$shortname[c(3,1,2)]
+facet_formula <- ". ~ time"
+sort_x_axis <- "time"
+legend_position = "bottom"
+
+base_plot <- make_taxon_plot(ptp = ptp, plot_color = plot_color, facet_formula = facet_formula, sort_x_axis = sort_x_axis, x_cluster = x_cluster, plotvarnames = plotvarnames, legend_position = legend_position, read_depth = read_depth, plot_order = plot_order)
+base_plot
+ggsave(paste0('core-metrics-results-',file_path,"/",file_path,"_taxon.jpg"), bg = "white")
+
+x_cluster <- "X.SampleID"
+plot_color <- c("black","dark green","red","blue")
+plot_order <- ptp[[3]]$shortname[c(3,2,1)]
+facet_formula <- ". ~ time"
+sort_x_axis <- "time"
+legend_position = "bottom"
+
+base_plot <- make_taxon_plot(ptp = ptp, plot_color = plot_color, facet_formula = facet_formula, sort_x_axis = sort_x_axis, x_cluster = x_cluster, plotvarnames = plotvarnames, legend_position = legend_position, read_depth = read_depth, plot_order = plot_order)
+base_plot
+ggsave(paste0('core-metrics-results-',file_path,"/",file_path,"_taxon.jpg"), bg = "white")
+
+
+		## taxon plot 
+map_path = "-joe" # taxonomy folder extension
+plotvarnames = c("pile","time") 
+mapper_file = mapper_file 
+taxonomic_level="family"
+rpa_in_chart = .025
+read_depth = 500
+legend_position = "bottom"
+sort_x_axis = "pile"
+x_cluster = "X.SampleID" #
+
+ptp <- prep_taxon_plot(file_path = file_path, map_path = map_path, plotvarnames = plotvarnames, mapper_file = mapper_file, taxonomic_level=taxonomic_level, rpa_in_chart = rpa_in_chart, read_depth = read_depth, legend_position=legend_position,  sort_x_axis = sort_x_axis,  x_cluster = x_cluster)
+
+x_cluster <- "X.SampleID"
+plot_color <- c("black","dark green","red","purple", "blue")
+plot_order <- ptp[[3]]$shortname[c(4,3,2,1)]
+facet_formula <- ". ~ time"
+sort_x_axis <- "time"
+legend_position = "bottom"
+
+base_plot <- make_taxon_plot(ptp = ptp, plot_color = plot_color, facet_formula = facet_formula, sort_x_axis = sort_x_axis, x_cluster = x_cluster, plotvarnames = plotvarnames, legend_position = legend_position, read_depth = read_depth, plot_order = plot_order) + theme(strip.text.x = element_text(angle = 35))
+base_plot
+ggsave(paste0('core-metrics-results-',file_path,"/",file_path,"_taxon.jpg"), bg = "white")
+
+x_cluster <- "X.SampleID"
+plot_color <- c("black","dark green","red","blue")
+plot_order <- ptp[[3]]$shortname[c(3,2,1)]
+facet_formula <- ". ~ time"
+sort_x_axis <- "time"
+legend_position = "bottom"
+
+base_plot <- make_taxon_plot(ptp = ptp, plot_color = plot_color, facet_formula = facet_formula, sort_x_axis = sort_x_axis, x_cluster = x_cluster, plotvarnames = plotvarnames, legend_position = legend_position, read_depth = read_depth, plot_order = plot_order)
+base_plot
+ggsave(paste0('core-metrics-results-',file_path,"/",file_path,"_taxon.jpg"), bg = "white")
+
+###
+# ANCOM
+###
+rm(melted_table, melted_table_no0, mt2)
+#mapper_file <- "MO.FUN.Metadata_CJR_7.5.2022_JMC.txt"
+var1 = "time"
+var2 = "fruit"
+var3 = "pile"
+var4 = "time"
+the_id = "X.SampleID"
+newcol <- "newcol"
+the_id <- "X.SampleID"
+map_path = "-joe"
+
+main.var="time"
+adj.formula= NULL #"pile"
+random.formula = "~1|pile" #NULL#"~1|Sampling_Date"
+multcorr="BH"
+sig=0.05
+prev.cut=0.7
+Group = "time"
+
+taxonomyrun <- c("phylum","class","order","family","genus","species","X.OTU.ID")
+for (i in taxonomyrun[1:7]) {
+  try(make_ancom2_plots(file_path, map_path=map_path, mapper_file=mapper_file, taxonomic_level=i,var1=var1,var2=var2,var3=var3,var4 = var4,newcol="newcol", the_id = "X.SampleID", main.var=main.var, adj.formula=adj.formula, random.formula = random.formula, repeat.var = repeat.var, multcorr=multcorr, sig=sig, prev.cut=prev.cut, Group = Group))
+}
+```
+
+## mmPm_noW
+```{r}
+
+setwd('~/Dropbox/sequencing/2023-02-JoeRyan/')
+getwd()
+
+file_path <- "mmPm_noW"
+mapper_file <- "joe_mapper.tsv"
+
+  ## unweighted
+flies_unweighted <- read.table(paste('core-metrics-results-',file_path,'/unweighted_unifrac_distance_matrix/distance-matrix.tsv',sep=""), header=T, sep="\t") %>% mutate(X=as.character(X))
+flies_unweighted_dm <- as.dist(flies_unweighted[,2:dim(flies_unweighted)[2]])
+flies_unifrac_table <- flies_unweighted %>% dplyr::select(X) %>% left_join(read.table(mapper_file,comment.char = "", header=T, fill=T, sep="\t"), by=c("X"="X.SampleID")) %>% droplevels()
+
+str(flies_unifrac_table)
+table(list(flies_unifrac_table$pile)) # no duplicates
+table(list(flies_unifrac_table$sex)) # 5-6 reps each
+table(list(flies_unifrac_table$fruit)) # f m
+table(list(flies_unifrac_table$species)) # f m
+table(list(flies_unifrac_table$date)) #
+
+make_permanova_tables(file_path = file_path, mapper_file = mapper_file, flies_unifrac_table = flies_unifrac_table, pform = "~ pile * time")
+
+#make_permanova_tables(file_path = file_path, mapper_file = mapper_file, flies_unifrac_table = flies_unifrac_table, pform = "~ bodysite * Location * Genus.species")
+###
+# Make taxon plots
+###
+
+		## taxon plot 
+map_path = "-joe" # taxonomy folder extension
+plotvarnames = c("pile","time") 
+mapper_file = mapper_file 
+taxonomic_level="family"
+rpa_in_chart = .02
+read_depth = 500
+legend_position = "bottom"
+sort_x_axis = "pile"
+x_cluster = "X.SampleID" #
+
+ptp <- prep_taxon_plot(file_path = file_path, map_path = map_path, plotvarnames = plotvarnames, mapper_file = mapper_file, taxonomic_level=taxonomic_level, rpa_in_chart = rpa_in_chart, read_depth = read_depth, legend_position=legend_position,  sort_x_axis = sort_x_axis,  x_cluster = x_cluster)
+
+x_cluster <- "X.SampleID"
+plot_color <- c("black","dark green","red","purple","blue")
+plot_order <- ptp[[3]]$shortname[c(4,3,2,1)]
+facet_formula <- ". ~ time"
+sort_x_axis <- "time"
+legend_position = "bottom"
+
+base_plot <- make_taxon_plot(ptp = ptp, plot_color = plot_color, facet_formula = facet_formula, sort_x_axis = sort_x_axis, x_cluster = x_cluster, plotvarnames = plotvarnames, legend_position = legend_position, read_depth = read_depth, plot_order = plot_order)
+base_plot
+
+ggsave(paste0('core-metrics-results-',file_path,"/",file_path,"_taxon.jpg"), bg = "white")
+
+
+###
+# ANCOM
+###
+rm(melted_table, melted_table_no0, mt2)
+#mapper_file <- "MO.FUN.Metadata_CJR_7.5.2022_JMC.txt"
+var1 = "time"
+var2 = "fruit"
+var3 = "pile"
+var4 = "time"
+the_id = "X.SampleID"
+newcol <- "newcol"
+the_id <- "X.SampleID"
+map_path = "-joe"
+
+main.var="time"
+adj.formula= NULL #"pile"
+random.formula = "~1|pile" #NULL#"~1|Sampling_Date"
+multcorr="BH"
+sig=0.05
+prev.cut=0.7
+Group = "time"
+
+taxonomyrun <- c("phylum","class","order","family","genus","species","X.OTU.ID")
+for (i in taxonomyrun[1:7]) {
+  try(make_ancom2_plots(file_path, map_path=map_path, mapper_file=mapper_file, taxonomic_level=i,var1=var1,var2=var2,var3=var3,var4 = var4,newcol="newcol", the_id = "X.SampleID", main.var=main.var, adj.formula=adj.formula, random.formula = random.formula, repeat.var = repeat.var, multcorr=multcorr, sig=sig, prev.cut=prev.cut, Group = Group))
+}
+
+##
+# Calculate correlations
+##
+
+calculate_correlations(file_path = file_path, taxonomy_extension = "joe", mapper_file = mapper_file, frac_samples = .2, averaged = F)
+
+
+```
+
+
+## all
+```{r}
+
+setwd('~/Dropbox/sequencing/2022-10-damselfly2/')
+getwd()
+
+# file1 <- read.table('../2022-10-damselfly2/damselfly2_mapper.tsv',comment.char = "", header=T, fill=T, sep="\t") %>%
+#   inner_join(read.table('../2022-10-damselfly2/Copy of SampleSheet-damselfly2-updated.csv', comment.char = "", header=T, fill=T, sep=","), by = c("X.SampleID" = "Sample_ID"))
+# 
+# write.table(file1, "file1.tsv")
+# 
+# file1
+file_path <- "all"
+mapper_file <- "damselfly2_mapper_v2.tsv"
+
+  ## unweighted
+flies_unweighted <- read.table(paste('core-metrics-results-',file_path,'/unweighted_unifrac_distance_matrix/distance-matrix.tsv',sep=""), header=T, sep="\t") %>% mutate(X=as.character(X))
+flies_unweighted_dm <- as.dist(flies_unweighted[,2:dim(flies_unweighted)[2]])
+flies_unifrac_table <- flies_unweighted %>% dplyr::select(X) %>% left_join(read.table(mapper_file,comment.char = "", header=T, fill=T, sep="\t"), by=c("X"="X.SampleID")) %>% droplevels()
+
+str(flies_unifrac_table)
+table(list(flies_unifrac_table$bodysite)) # no duplicates
+table(list(flies_unifrac_table$Location)) # 5-6 reps each
+table(list(flies_unifrac_table$Water.Type)) # f m
+table(list(flies_unifrac_table$Sex)) #
+table(list(flies_unifrac_table$Suborder)) #
+table(list(flies_unifrac_table$Family))
+make_permanova_tables(file_path = file_path, mapper_file = mapper_file, flies_unifrac_table = flies_unifrac_table, pform = "~ bodysite * Location * Water.Type * Sex * Suborder/Family")
+
+```
+
+## all 189
+```{r}
+setwd('~/Dropbox/sequencing/2022-10-damselfly2/')
+getwd()
+
+file_path <- "all189"
+mapper_file <- "damselfly2_mapper_v2.tsv"
+
+  ## unweighted
+flies_unweighted <- read.table(paste('core-metrics-results-',file_path,'/unweighted_unifrac_distance_matrix/distance-matrix.tsv',sep=""), header=T, sep="\t") %>% mutate(X=as.character(X))
+flies_unweighted_dm <- as.dist(flies_unweighted[,2:dim(flies_unweighted)[2]])
+flies_unifrac_table <- flies_unweighted %>% dplyr::select(X) %>% left_join(read.table(mapper_file,comment.char = "", header=T, fill=T, sep="\t"), by=c("X"="X.SampleID")) %>% droplevels()
+
+str(flies_unifrac_table)
+table(list(flies_unifrac_table$bodysite)) # no duplicates
+table(list(flies_unifrac_table$Location)) # 5-6 reps each
+table(list(flies_unifrac_table$Water.Type)) # f m
+table(list(flies_unifrac_table$Sex)) #
+table(list(flies_unifrac_table$Suborder)) #
+table(list(flies_unifrac_table$Family))
+```
+
+## all189_filter1
+```{r}
+setwd('~/Dropbox/sequencing/2022-10-damselfly2/')
+getwd()
+
+file_path <- "all189_filter1"
+mapper_file <- "damselfly2_mapper_v2.tsv"
+
+  ## unweighted
+flies_unweighted <- read.table(paste('core-metrics-results-',file_path,'/unweighted_unifrac_distance_matrix/distance-matrix.tsv',sep=""), header=T, sep="\t") %>% mutate(X=as.character(X))
+flies_unweighted_dm <- as.dist(flies_unweighted[,2:dim(flies_unweighted)[2]])
+flies_unifrac_table <- flies_unweighted %>% dplyr::select(X) %>% left_join(read.table(mapper_file,comment.char = "", header=T, fill=T, sep="\t"), by=c("X"="X.SampleID")) %>% droplevels()
+
+str(flies_unifrac_table)
+table(list(flies_unifrac_table$bodysite)) # no duplicates
+table(list(flies_unifrac_table$Location)) # 5-6 reps each
+table(list(flies_unifrac_table$Water.Type)) # f m
+table(list(flies_unifrac_table$Sex)) #
+table(list(flies_unifrac_table$Suborder)) #
+table(list(flies_unifrac_table$))
+
+make_permanova_tables(file_path = file_path, mapper_file = mapper_file, flies_unifrac_table = flies_unifrac_table, pform = "~ bodysite * Location * Family")
+
+make_permanova_tables(file_path = file_path, mapper_file = mapper_file, flies_unifrac_table = flies_unifrac_table, pform = "~ bodysite * Location * Genus.species")
+```
+
+
+## all189_noWRth
+```{r}
+
+setwd('~/Dropbox/sequencing/2022-10-invert_ellecyn_caddis/')
+
+file_path <- "all"
+mapper_file <- "caddis_mapper.tsv"
+
+  ## unweighted
+flies_unweighted <- read.table(paste('core-metrics-results-',file_path,'/unweighted_unifrac_distance_matrix/distance-matrix.tsv',sep=""), header=T, sep="\t") %>% mutate(X=as.character(X))
+flies_unweighted_dm <- as.dist(flies_unweighted[,2:dim(flies_unweighted)[2]])
+flies_unifrac_table <- flies_unweighted %>% dplyr::select(X) %>% left_join(read.table(mapper_file,comment.char = "", header=T, fill=T, sep="\t"), by=c("X"="X.SampleID")) %>% droplevels()
+
+str(flies_unifrac_table)
+table(list(flies_unifrac_table$bodysite)) # no duplicates
+table(list(flies_unifrac_table$Location)) # 5-6 reps each
+table(list(flies_unifrac_table$Water.Type)) # f m
+table(list(flies_unifrac_table$Sex)) #
+table(list(flies_unifrac_table$Suborder)) #
+table(list(flies_unifrac_table$Family))
+table(list(flies_unifrac_table$Genus.species))
+
+make_permanova_tables(file_path = file_path, mapper_file = mapper_file, flies_unifrac_table = flies_unifrac_table, pform = "~ extradata")
+
+###
+# Make taxon plots
+###
+
+		## taxon plot 
+map_path = "-caddis" # taxonomy folder extension
+plotvarnames = c("X.SampleID") 
+mapper_file = mapper_file 
+taxonomic_level="genus"
+rpa_in_chart = .02
+read_depth = 3800
+legend_position = "bottom"
+sort_x_axis = "X.SampleID"
+x_cluster = "X.SampleID" #
+
+ptp <- prep_taxon_plot(file_path = file_path, map_path = map_path, plotvarnames = plotvarnames, mapper_file = mapper_file, taxonomic_level=taxonomic_level, rpa_in_chart = rpa_in_chart, read_depth = read_depth, legend_position=legend_position,  sort_x_axis = sort_x_axis,  x_cluster = x_cluster)
+
+x_cluster <- "X.SampleID"
+plot_color <- c("black","dark magenta","red","blue","green")
+plot_order <- ptp[[3]]$shortname[c(5,1,2,3,4)]
+facet_formula <- ". ~ X.SampleID"
+sort_x_axis <- "X.SampleID"
+legend_position = "bottom"
+
+base_plot <- make_taxon_plot(ptp = ptp, plot_color = plot_color, facet_formula = facet_formula, sort_x_axis = sort_x_axis, x_cluster = x_cluster, plotvarnames = plotvarnames, legend_position = legend_position, read_depth = read_depth, plot_order = plot_order)
+base_plot
+ggsave(paste0('core-metrics-results-',file_path,"/",file_path,"_taxon.jpg"), bg = "white")
+```
+
