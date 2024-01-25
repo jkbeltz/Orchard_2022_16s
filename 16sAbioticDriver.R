@@ -21,7 +21,7 @@ library(ggplot2)
 library(pheatmap)
 
 SVAB <-read_qza("table-allbeltz.qza")
-SVnwAB <- read_qza("table-allbeltz_noWR.qza")
+SVnwAB <- read_qza("table-allbeltz_noWR_Wphyla.qza")
 OTUTABLE_nw <- SVnwAB$data
 ncol(OTUTABLE_nw)
 SV_nw <- OTUTABLE_nw #####apply(OTUTABLE_nw, 2, function(x) x/sum(x)*100)
@@ -40,15 +40,15 @@ rooted_artifact <- read_qza("rooted-tree-allbeltz.qza")
 ##taxonomy
 taxonomy <- read_qza("taxonomy-allbeltz.qza")
 taxon <- parse_taxonomy(taxonomy$data)
-
+View(taxon)
 taxasumgenus <-summarize_taxa(SV_nw, taxon)$Genus
 taxasumfamily <-summarize_taxa(SV_nw, taxon)$Family
 taxasumorder <-summarize_taxa(SV_nw, taxon)$Order
 taxasumclass <-summarize_taxa(SV_nw, taxon)$Class
 #View(taxon)
 
-otu.taxon<- merge(taxon, OTUTABLE_nw, by ='row.names', all=TRUE)
-#View(otu.taxon)
+otu.taxon<- merge(taxon, OTUTABLE_nw, by ='row.names', all.y=TRUE)
+View(otu.taxon)
 
 #### 09a469f13ec1e2269b3b363405f4e8e4 #### the NA 
 
@@ -57,35 +57,34 @@ meta <- read.delim("mapper_allbeltz.txt")
 meta <- meta %>% rename( "X.SampleID"="SampleID")
 
 ##import metricss##
-shannon <- read_qza("metrics-noWR-rd100/shannon_vector.qza")
+shannon <- read_qza("metrics-noWR-Wphyla-rd100/shannon_vector.qza")
 shannon <- shannon$data %>% rownames_to_column("SampleID")
 
 
-observed_features <- read_qza("metrics-noWR-rd100/observed_features_vector.qza")
+observed_features <- read_qza("metrics-noWR-Wphyla-rd100/observed_features_vector.qza")
 observed_features <- observed_features$data %>% rownames_to_column("SampleID")
 #View(observed_features)
 
-faith_pd <- read_qza("metrics-noWR-rd100/faith_pd_vector.qza")
-
+faith_pd <- read_qza("metrics-noWR-Wphyla-rd100/faith_pd_vector.qza")
 faith_pd <-faith_pd$data %>% rownames_to_column("SampleID")
 
 #view(faith_pd)
 
-rarefied=read_qza("metrics-noWR-rd100/rarefied_table.qza")
+rarefied=read_qza("metrics-noWR-Wphyla-rd100/rarefied_table.qza")
 
 ## import PCAs ##
-uu_distance_matrix <- read_qza("metrics-noWR-rd100/unweighted_unifrac_distance_matrix.qza")
-uu_pcoa <- read_qza("metrics-noWR-rd100/unweighted_unifrac_pcoa_results.qza")
+uu_distance_matrix <- read_qza("metrics-noWR-Wphyla-rd100/unweighted_unifrac_distance_matrix.qza")
+uu_pcoa <- read_qza("metrics-noWR-Wphyla-rd100/unweighted_unifrac_pcoa_results.qza")
 #list(wu_pcoa$data$Vectors$SampleID)
 
-wu_distance_matrix <- read_qza("metrics-noWR-rd100/weighted_unifrac_distance_matrix.qza")
-wu_pcoa <- read_qza("metrics-noWR-rd100/weighted_unifrac_pcoa_results.qza")
+wu_distance_matrix <- read_qza("metrics-noWR-Wphyla-rd100/weighted_unifrac_distance_matrix.qza")
+wu_pcoa <- read_qza("metrics-noWR-Wphyla-rd100/weighted_unifrac_pcoa_results.qza")
 
-bray_distance_matrix <- read_qza("metrics-noWR-rd100/bray_curtis_distance_matrix.qza")
-bray_curtis_pcoa <- read_qza("metrics-noWR-rd100/bray_curtis_pcoa_results.qza")
+bray_distance_matrix <- read_qza("mmetrics-noWR-Wphyla-rd100/bray_curtis_distance_matrix.qza")
+bray_curtis_pcoa <- read_qza("metrics-noWR-Wphyla-rd100/bray_curtis_pcoa_results.qza")
 
-jaccard_matrix <- read_qza("metrics-noWR-rd100/jaccard_distance_matrix.qza")
-jaccard_pcoa <- read_qza("metrics-noWR-rd100/jaccard_pcoa_results.qza")
+jaccard_matrix <- read_qza("metrics-noWR-Wphyla-rd100/jaccard_distance_matrix.qza")
+jaccard_pcoa <- read_qza("metrics-noWR-Wphyla-rd100/jaccard_pcoa_results.qza")
 
 ##adding sample metrics to metadata
 metadata=meta %>% 
@@ -263,13 +262,13 @@ pheatmap(log10(d[1:12,]), annotation_col = a, cluster_cols = FALSE )
 view(metadata)
 metadata$TreatmentInoculum <- gsub('DecreasedLarvalDensity', 'Decreased Larval Density', metadata$TreatmentInoculum)
 metadata%>%
-  filter (Experiment == '22SWAP') %>%  
+  filter (Experiment == '22SLURRIES') %>%  
   mutate(pop=case_when(str_detect(PopCode,'^E')==T ~ 'Ecage',TRUE ~ 'Indoor')) %>%
   #filter (CollectionTreatment == 'Starved') %>% 
   #filter (!sample_type_detail == 'cage env') %>% 
   #filter (!time_point == 'T5') %>%   
-  #filter(TreatmentInoculum == "SummerEvolvedMicrobiome") %>% 
-  ggplot(aes(x=PC1_uu, y=PC2_uu, color=pop)) +     #, size=shannon_entropy
+  #filter(TreatmentInoculum == "None") %>% 
+  ggplot(aes(x=PC1_uu, y=PC2_uu, color=pop, shape=TreatmentInoculum)) +     #, size=shannon_entropy
   geom_point(alpha=1, size=4) + #alpha controls transparency and helps when points are overlapping
   theme_q2r()# +
   
