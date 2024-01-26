@@ -19,6 +19,7 @@ library(dada2)
 library(qiime2R)
 library(ggplot2)
 library(pheatmap)
+library(data.table)
 
 SVAB <-read_qza("table-allbeltz.qza")
 SVnwAB <- read_qza("table-allbeltz_noWR_Wphyla.qza")
@@ -54,7 +55,7 @@ View(otu.taxon)
 
 ##metadata
 meta <- read.delim("mapper_allbeltz.txt")
-meta <- meta %>% rename( "X.SampleID"="SampleID")
+meta <- meta %>% rename("SampleID" = "X.SampleID")
 
 ##import metricss##
 shannon <- read_qza("metrics-noWR-Wphyla-rd100/shannon_vector.qza")
@@ -80,9 +81,9 @@ uu_pcoa <- read_qza("metrics-noWR-Wphyla-rd100/unweighted_unifrac_pcoa_results.q
 wu_distance_matrix <- read_qza("metrics-noWR-Wphyla-rd100/weighted_unifrac_distance_matrix.qza")
 wu_pcoa <- read_qza("metrics-noWR-Wphyla-rd100/weighted_unifrac_pcoa_results.qza")
 
-bray_distance_matrix <- read_qza("mmetrics-noWR-Wphyla-rd100/bray_curtis_distance_matrix.qza")
+bray_distance_matrix <- read_qza("metrics-noWR-Wphyla-rd100/bray_curtis_distance_matrix.qza")
 bray_curtis_pcoa <- read_qza("metrics-noWR-Wphyla-rd100/bray_curtis_pcoa_results.qza")
-
+#view(bray_curtis_pcoa$data$Vectors)
 jaccard_matrix <- read_qza("metrics-noWR-Wphyla-rd100/jaccard_distance_matrix.qza")
 jaccard_pcoa <- read_qza("metrics-noWR-Wphyla-rd100/jaccard_pcoa_results.qza")
 
@@ -91,18 +92,26 @@ metadata=meta %>%
   full_join(observed_features) %>%
   full_join(faith_pd)%>%
   full_join(shannon)
-nrow(metadata)
+#View(metadata)
 
 metadata=uu_pcoa$data$Vectors %>%
   select(SampleID, PC1, PC2, PC3, PC4) %>%
   full_join(metadata)%>%
-  rename("PC1"="PC1_uu", "PC2"="PC2_uu", "PC3"="PC3_uu", "PC4"="PC4_uu")
+  rename("PC1_uu"="PC1", "PC2_uu"="PC2", "PC3_uu"="PC3","PC4_uu"="PC4")
 
 metadata=wu_pcoa$data$Vectors %>%
   select(SampleID, PC1, PC2, PC3, PC4) %>%
   full_join(metadata)%>%
-  rename("PC1"="PC1_wu", "PC2"="PC2_wu", "PC3"="PC3_wu", "PC4"="PC4_wu")
+  rename("PC1_wu"="PC1", "PC2_wu"="PC2", "PC3_wu"="PC3", "PC4_wu"="PC4")
+
+metadata=bray_curtis_pcoa$data$Vectors %>%
+  select(SampleID, PC1, PC2, PC3, PC4) %>%
+  full_join(metadata)%>%
+  rename("PC1_bc"="PC1", "PC2_bc"="PC2", "PC3_bc"="PC3", "PC4_bc"="PC4")
+
 metadata$TreatmentInoculum <- gsub('DecreasedLarvalDensity', 'Decreased Larval Density', metadata$TreatmentInoculum)
+metadata$TreatmentInoculum <- gsub('OutdoorMicorbiome', 'OutdoorMicrobiome', metadata$TreatmentInoculum)
+
 ##splitting metadata by experiment
 
 metadata2 <- split(metadata, metadata$Experiment)
@@ -224,52 +233,63 @@ t.taxasumclass=as.data.frame(t(taxasumclass))
 t.taxasumclass_control=t.taxasumclass[controlmeta$SampleID, ]
 taxasum_class_control=as.data.frame(t(t.taxasumclass_control))
 
-####heatmaps####
-
+####heatmaps###
+{
 m=metadata %>% #### meta file 
-  filter (Experiment == '22SWAP') %>%
-  #filter (CollectionTreatment == 'Starved') %>%
-  #filter (Timepoint == '22.5') %>%
-  as_data_frame()%>% 
-  mutate(pop=case_when(str_detect(PopCode,'^E')==T ~ 'Ecage',
-                              TRUE ~ 'Indoor'))
-select <- m$SampleID
-taxa=taxasumorder ##change phylo level as needed
+  filter (Experiment == '22NEW') %>%
+  #filter (TreatmentInoculum =='FounderMicrobiome')%>%
+  filter (CollectionTreatment == 'Starved') %>%
+  filter (Timepoint == '22.7') %>%
+  as_data_frame()#%>% 
+  #mutate(pop=case_when(str_detect(PopCode,'^E')==T ~ 'Ecage',TRUE ~ 'Indoor'))
+
+
+taxa=taxasumfamily ##change phylo level as needed
 taxa<-taxa[order(-rowSums(taxa)),] 
 taxa[taxa==0]<-1                            
 
-d=taxa%>% #### freq file =
+a =m %>%
+  group_by(m$SampleID) %>%
+  dplyr :: summarise(SampleID= SampleID,
+                     Timepoint = Timepoint,
+                     #SampleType = CollectionTreatment,
+                     Treatment = TreatmentInoculum) %>%
+                    # Population = pop) %>%
+  as_data_frame() %>%
+  column_to_rownames('m$SampleID')
+
+select <- a$SampleID
+
+#length(names)
+d = taxa%>% #### freq file =
   rownames_to_column('phylo') %>%
   as_tibble() %>%
   select(phylo, any_of(select)) %>% 
   as_data_frame() %>%
-  column_to_rownames('phylo')
+  column_to_rownames('phylo') 
 
-a =m %>%
-  group_by(m$SampleID) %>%
-  dplyr :: summarise(
-                     #SampleType = CollectionTreatment,
-                     Treatment = TreatmentInoculum, 
-                     Population = pop) %>%
-  as_data_frame() %>%
-  column_to_rownames('m$SampleID') 
+#d[, select]
 
-#View(m)
-pheatmap(log10(d[1:12,]), annotation_col = a, cluster_cols = FALSE ) 
+a = subset(a, select = -c(SampleID) )
+
+#View(d)
+#view(a)
+pheatmap(log10(d[1:10,]), annotation_col = a, cluster_cols = F, cluster_rows = F, labels_col = "") 
+}
 
 
 ####PCA Viz####
 view(metadata)
-metadata$TreatmentInoculum <- gsub('DecreasedLarvalDensity', 'Decreased Larval Density', metadata$TreatmentInoculum)
-metadata%>%
-  filter (Experiment == '22SLURRIES') %>%  
-  mutate(pop=case_when(str_detect(PopCode,'^E')==T ~ 'Ecage',TRUE ~ 'Indoor')) %>%
-  #filter (CollectionTreatment == 'Starved') %>% 
+metadata %>%
+  filter (Experiment == '22NEW') %>%  
+  #mutate(pop=case_when(str_detect(PopCode,'^E')==T ~ 'Ecage',TRUE ~ 'Indoor')) %>%
+  filter (CollectionTreatment == 'Starved') %>% 
   #filter (!sample_type_detail == 'cage env') %>% 
-  #filter (!time_point == 'T5') %>%   
+  #filter (Timepoint == '22.5') %>%   
   #filter(TreatmentInoculum == "None") %>% 
-  ggplot(aes(x=PC1_uu, y=PC2_uu, color=pop, shape=TreatmentInoculum)) +     #, size=shannon_entropy
+  ggplot(aes(x=PC2_wu, y=PC3_wu, color=TreatmentInoculum)) +     #, size=shannon_entropy
   geom_point(alpha=1, size=4) + #alpha controls transparency and helps when points are overlapping
-  theme_q2r()# +
+  theme_q2r() # +
+
   
 
