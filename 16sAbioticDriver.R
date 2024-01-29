@@ -249,14 +249,14 @@ taxa<-taxa[order(-rowSums(taxa)),]
 taxa[taxa==0]<-1                            
 
 a =m %>%
-  group_by(m$SampleID) %>%
+  group_by(m$TreatmentInoculum, m$SampleID) %>%
   dplyr :: summarise(SampleID= SampleID,
-                     Timepoint = Timepoint,
-                     #SampleType = CollectionTreatment,
-                     Treatment = TreatmentInoculum) %>%
+                     Timepoint = Timepoint) %>%
+                     #SampleType = CollectionTreatment) %>%
                     # Population = pop) %>%
   as_data_frame() %>%
-  column_to_rownames('m$SampleID')
+  column_to_rownames('m$SampleID')%>%
+  rename(Treatment = 'm$TreatmentInoculum')
 
 select <- a$SampleID
 
@@ -270,7 +270,7 @@ d = taxa%>% #### freq file =
 
 #d[, select]
 
-a = subset(a, select = -c(SampleID) )
+a = subset(a, select = -c(SampleID))
 
 #View(d)
 #view(a)
@@ -278,7 +278,7 @@ pheatmap(log10(d[1:10,]), annotation_col = a, cluster_cols = F, cluster_rows = F
 }
 
 
-####PCA Viz####
+[####PCA Viz####
 view(metadata)
 metadata %>%
   filter (Experiment == '22NEW') %>%  
