@@ -20,6 +20,8 @@ library(qiime2R)
 library(ggplot2)
 library(pheatmap)
 library(data.table)
+library(plotly)
+library(vegan)
 
 SVAB <-read_qza("table-allbeltz.qza")
 SVnwAB <- read_qza("table-allbeltz_noWR_Wphyla.qza")
@@ -111,7 +113,11 @@ metadata=bray_curtis_pcoa$data$Vectors %>%
 
 metadata$TreatmentInoculum <- gsub('DecreasedLarvalDensity', 'Decreased Larval Density', metadata$TreatmentInoculum)
 metadata$TreatmentInoculum <- gsub('OutdoorMicorbiome', 'OutdoorMicrobiome', metadata$TreatmentInoculum)
-
+metadata$TreatmentInoculum <- gsub('Control Pigmentation Selection', 'ControlPigmentationSelection', metadata$TreatmentInoculum)
+metadata$TreatmentInoculum <- gsub('Dark Pigmentation Selection', 'DarkPigmentationSelection', metadata$TreatmentInoculum)
+metadata$TreatmentInoculum <- gsub('Light Pigmentation Selection', 'LightPigmentationSelection', metadata$TreatmentInoculum)
+metadata <- metadata %>%
+  mutate(pop=case_when(str_detect(PopCode,'^E')==T ~ 'Ecage',TRUE ~ 'Indoor'))
 ##splitting metadata by experiment
 
 metadata2 <- split(metadata, metadata$Experiment)
@@ -236,10 +242,10 @@ taxasum_class_control=as.data.frame(t(t.taxasumclass_control))
 ####heatmaps###
 {
 m=metadata %>% #### meta file 
-  filter (Experiment == '22NEW') %>%
-  #filter (TreatmentInoculum =='FounderMicrobiome')%>%
-  filter (CollectionTreatment == 'Starved') %>%
-  filter (Timepoint == '22.7') %>%
+  filter (Experiment == '21Pesticide') %>%
+  #filter (TreatmentInoculum =='Decreased Larval Density')%>%
+  #filter (CollectionTreatment == 'Starved') %>%
+  #filter (Timepoint == '22.4') %>%
   as_data_frame()#%>% 
   #mutate(pop=case_when(str_detect(PopCode,'^E')==T ~ 'Ecage',TRUE ~ 'Indoor'))
 
@@ -249,14 +255,16 @@ taxa<-taxa[order(-rowSums(taxa)),]
 taxa[taxa==0]<-1                            
 
 a =m %>%
-  group_by(m$TreatmentInoculum, m$SampleID) %>%
-  dplyr :: summarise(SampleID= SampleID,
-                     Timepoint = Timepoint) %>%
+  group_by(m$TreatmentInoculum, m$Timepoint, m$SampleID) %>%
+  dplyr :: summarise(SampleID= SampleID) %>%
+                     #Timepoint = Timepoint) %>%
                      #SampleType = CollectionTreatment) %>%
                     # Population = pop) %>%
   as_data_frame() %>%
   column_to_rownames('m$SampleID')%>%
-  rename(Treatment = 'm$TreatmentInoculum')
+  rename(Treatment = 'm$TreatmentInoculum')%>%
+  rename(Timepoint = 'm$Timepoint')
+
 
 select <- a$SampleID
 
@@ -274,22 +282,110 @@ a = subset(a, select = -c(SampleID))
 
 #View(d)
 #view(a)
-pheatmap(log10(d[1:10,]), annotation_col = a, cluster_cols = F, cluster_rows = F, labels_col = "") 
+NEW22_Decreased_AllTPs= pheatmap(log10(d[1:15,]), annotation_col = a, cluster_cols = F, cluster_rows = F, labels_col = "") 
 }
 
 
-[####PCA Viz####
-view(metadata)
+plot(NEW22_Warming_AllTPs)
+plot(NEW22_Control_AllTPs)
+plot(NEW22_Decreased_AllTPs)
+
+
+
+
+
+####PCA Viz####
+
+##2D
 metadata %>%
-  filter (Experiment == '22NEW') %>%  
+  filter (Experiment == '21Pesticide') %>%  
   #mutate(pop=case_when(str_detect(PopCode,'^E')==T ~ 'Ecage',TRUE ~ 'Indoor')) %>%
-  filter (CollectionTreatment == 'Starved') %>% 
+  #filter (CollectionTreatment == '') %>% 
   #filter (!sample_type_detail == 'cage env') %>% 
   #filter (Timepoint == '22.5') %>%   
   #filter(TreatmentInoculum == "None") %>% 
-  ggplot(aes(x=PC2_wu, y=PC3_wu, color=TreatmentInoculum)) +     #, size=shannon_entropy
+  ggplot(aes(x=PC1_wu, y=PC2_wu, color=TreatmentInoculum )) +     #, size=shannon_entropy
   geom_point(alpha=1, size=4) + #alpha controls transparency and helps when points are overlapping
   theme_q2r() # +
 
-  
+##3D
+
+colfunc<-colorRampPalette(c("yellow","blue","white","red"))
+
+metadata %>%
+  filter (Experiment == '21Pesticide') %>%  
+  #mutate(pop=case_when(str_detect(PopCode,'^E')==T ~'Ecage',TRUE ~ 'Indoor')) %>%
+  #filter (CollectionTreatment == 'Starved') %>%
+  plot_ly(x = ~PC1_wu, y = ~PC2_wu, z = ~PC3_wu, 
+          type = 'scatter3d', 
+          mode = 'markers', 
+          symbol = ~TreatmentInoculum, 
+          color = ~Timepoint, 
+          #colors = colfunc(8),
+          symbols = c('o','x'), 
+          marker = list(size = 6)) 
+
+###PERMANOVA
+
+statdata = metadata %>%
+  filter (Experiment == '21Pesticide') %>%  
+  #filter (CollectionTreatment == 'food') %>%
+  #mutate(pop=case_when(str_detect(PopCode,'^E')==T ~'Ecage',TRUE ~ 'Indoor'), na.rm=TRUE) %>%
+  filter(!is.na(PC1_bc))
+
+adonis2(
+  statdata[ , c("PC1_uu", "PC2_uu", "PC3_uu")] ~ Timepoint*TreatmentInoculum,
+  data = statdata,
+  method = "euc"
+)
+
+##22NEW - starved - timextreatment ALL SIG for bc & wu 
+##22NEW - food - timextreatment  ALL SIG for bc & wu / TP very sig interaction slightly for uu 
+
+##22LCD - starved - timextreatment TP very sig bc, wu, uu / Treatment slightly sig bc 
+##22LCD - food - timextreatment TP very sig bc, wu / Interaction slightly sig uu
+
+##21pest - unstarved - timextreatment ALL SIG bc, wu /uu(slightly less), 
+
+##are contr
+
+
+
+metadata$interaction <- factor(interaction(metadata$Timepoint, metadata$TreatmentInoculum))
+levels(metadata$interaction)
+    
+
+## line ploys divesity
+
+metadata %>%
+  filter (Experiment == '22NEW') %>%
+  #filter (CollectionTreatment == 'Starved') %>%
+  #filter (TreatmentInoculum == 'Control') %>%
+  ggplot(aes(x=as.factor(Timepoint), y=observed_features, 
+             group=interaction(as.factor(TreatmentInoculum), as.factor(Timepoint)), 
+             color=as.factor(TreatmentInoculum))) +
+  geom_boxplot()+
+  #stat_summary(geom="errorbar", fun.data=mean_se, width=.1) +
+  #stat_summary(geom="line", fun.data=mean) 
+  #stat_summary(geom="point", fun.y=mean, size=6, shape=12) +
+  geom_jitter(shape=19, width=0.15, height=0)+
+  #geom_signif(
+    # which groups should be compared?
+    #comparisons = list(c("Adelie", "Gentoo")), 
+    #map_signif_level=TRUE)
+  #ylim(0,5)+
+  xlab("Time Point") +
+  #scale_colour_manual(name = "Cage Treatment", 
+                      #breaks = c("Control","Pesticide Addition"),
+                      #labels = c("Control Populations","LB+ Populations", "AT+ Populations"),
+                      #values = c("grey","red"))+
+  theme_classic()  # try other themes like theme_bw() or theme_classic()
+
+  geom_signif(comparisons = list(c("A.c", "B.c"),
+                                 c("A.c", "A.d"),
+                                 c("B.c", "B.d"),
+                                 c("A.d", "B.d")),
+              test = "t.test", step_increase = 0.075,
+              map_signif_level = TRUE, tip_length = 0)
+
 
