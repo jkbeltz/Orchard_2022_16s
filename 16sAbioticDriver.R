@@ -22,6 +22,8 @@ library(pheatmap)
 library(data.table)
 library(plotly)
 library(vegan)
+library(data.table)
+library(janitor)
 
 SVAB <-read_qza("table-allbeltz.qza")
 SVnwAB <- read_qza("table-allbeltz_noWR_Wphyla.qza")
@@ -34,7 +36,7 @@ SV_nw <- OTUTABLE_nw #####apply(OTUTABLE_nw, 2, function(x) x/sum(x)*100)
 denoise_stats_nwAB <-read_qza("denoising-stats-allbeltz.qza")
 rep_seqs <- read_qza("rep-seqs-allbeltz.qza")
 seqs <- rep_seqs$data
-sickseq=(seqs[2])
+#sickseq=(seqs[2])
 as.data.frame(sickseq) ### sequence for weird strain found in 2021
 
 unrooted_artifact <- read_qza("unrooted-tree-allbeltz.qza")
@@ -43,7 +45,7 @@ rooted_artifact <- read_qza("rooted-tree-allbeltz.qza")
 ##taxonomy
 taxonomy <- read_qza("taxonomy-allbeltz.qza")
 taxon <- parse_taxonomy(taxonomy$data)
-View(taxon)
+#View(taxon)
 taxasumgenus <-summarize_taxa(SV_nw, taxon)$Genus
 taxasumfamily <-summarize_taxa(SV_nw, taxon)$Family
 taxasumorder <-summarize_taxa(SV_nw, taxon)$Order
@@ -51,7 +53,7 @@ taxasumclass <-summarize_taxa(SV_nw, taxon)$Class
 #View(taxon)
 
 otu.taxon<- merge(taxon, OTUTABLE_nw, by ='row.names', all.y=TRUE)
-View(otu.taxon)
+#View(otu.taxon)
 
 #### 09a469f13ec1e2269b3b363405f4e8e4 #### the NA 
 
@@ -118,6 +120,9 @@ metadata$TreatmentInoculum <- gsub('Dark Pigmentation Selection', 'DarkPigmentat
 metadata$TreatmentInoculum <- gsub('Light Pigmentation Selection', 'LightPigmentationSelection', metadata$TreatmentInoculum)
 metadata <- metadata %>%
   mutate(pop=case_when(str_detect(PopCode,'^E')==T ~ 'Ecage',TRUE ~ 'Indoor'))
+metadata <- metadata %>%
+  mutate(popslur=case_when(str_detect(PopCode,'^E')==T ~ 'Ecage',TRUE ~ 'Indoor'))
+  
 ##splitting metadata by experiment
 
 metadata2 <- split(metadata, metadata$Experiment)
@@ -239,32 +244,36 @@ t.taxasumclass=as.data.frame(t(taxasumclass))
 t.taxasumclass_control=t.taxasumclass[controlmeta$SampleID, ]
 taxasum_class_control=as.data.frame(t(t.taxasumclass_control))
 
-####heatmaps###
+####heatmaps####
+
+## add a mean column group by treatment
 {
 m=metadata %>% #### meta file 
   filter (Experiment == '21Pesticide') %>%
-  #filter (TreatmentInoculum =='Decreased Larval Density')%>%
+  #filter (TreatmentInoculum =='None')%>%
   #filter (CollectionTreatment == 'Starved') %>%
-  #filter (Timepoint == '22.4') %>%
+  #filter (Timepoint %in% c('22','22.1','22.2','22.3','22.4')) %>%
+  #filter (TreatmentInoculum %in% c('Control','ControlPigmentationSelection','Founder')) %>%
   as_data_frame()#%>% 
   #mutate(pop=case_when(str_detect(PopCode,'^E')==T ~ 'Ecage',TRUE ~ 'Indoor'))
 
-
-taxa=taxasumfamily ##change phylo level as needed
+taxa=taxasumgenus  ##change phylo level as needed
 taxa<-taxa[order(-rowSums(taxa)),] 
 taxa[taxa==0]<-1                            
 
 a =m %>%
-  group_by(m$TreatmentInoculum, m$Timepoint, m$SampleID) %>%
-  dplyr :: summarise(SampleID= SampleID) %>%
-                     #Timepoint = Timepoint) %>%
+  group_by(m$TreatmentInoculum, m$Timepoint, m$SampleID) %>% # add m$Timepoint, 
+  dplyr :: summarise(
+                     SampleID= SampleID,
+                     Timepoint = Timepoint) %>%
                      #SampleType = CollectionTreatment) %>%
-                    # Population = pop) %>%
+                      #Population = pop) %>%
   as_data_frame() %>%
   column_to_rownames('m$SampleID')%>%
   rename(Treatment = 'm$TreatmentInoculum')%>%
-  rename(Timepoint = 'm$Timepoint')
+  relocate(Treatment, .after = Timepoint)
 
+  #rename(Timepoint = 'm$Timepoint')
 
 select <- a$SampleID
 
@@ -276,68 +285,92 @@ d = taxa%>% #### freq file =
   as_data_frame() %>%
   column_to_rownames('phylo') 
 
-#d[, select]
-
 a = subset(a, select = -c(SampleID))
-
+a = subset(a, select = -c(`m$Timepoint`))
+#a = subset(a, select = -c(Cage))
 #View(d)
-#view(a)
-NEW22_Decreased_AllTPs= pheatmap(log10(d[1:15,]), annotation_col = a, cluster_cols = F, cluster_rows = F, labels_col = "") 
+#View(a)
+pheatmap(log10(d[1:10,]), annotation_col = a, cluster_cols = F, cluster_rows = F, labels_col = "") 
 }
 
 
-plot(NEW22_Warming_AllTPs)
-plot(NEW22_Control_AllTPs)
-plot(NEW22_Decreased_AllTPs)
 
 
 
-
-
-####PCA Viz####
+  ####PCA Viz####
 
 ##2D
 metadata %>%
-  filter (Experiment == '21Pesticide') %>%  
+  drop_na(PC1_bc)%>%
+  filter (Experiment == '22LCD') %>%
+  filter (Timepoint %in% c('22.6','22.7','22.1','22.2','22.3')) %>%
+  #filter (TreatmentInoculum %in% c('Control','Decreased Larval Density')) %>%
+  filter (TreatmentInoculum %in% c('ControlPigmentationSelection')) %>%
+  #filter (Experiment == '22LCD') %>%  
   #mutate(pop=case_when(str_detect(PopCode,'^E')==T ~ 'Ecage',TRUE ~ 'Indoor')) %>%
-  #filter (CollectionTreatment == '') %>% 
+  filter (CollectionTreatment == 'Starved') %>% 
   #filter (!sample_type_detail == 'cage env') %>% 
-  #filter (Timepoint == '22.5') %>%   
-  #filter(TreatmentInoculum == "None") %>% 
-  ggplot(aes(x=PC1_wu, y=PC2_wu, color=TreatmentInoculum )) +     #, size=shannon_entropy
+  #filter (pop == 'Ecage') %>%   
+  #filter(TreatmentInoculum == "SummerEvolvedMicrobiome") %>% 
+  ggplot(aes(x=PC1_bc, y=PC2_bc, color=Timepoint)) +     #, size=shannon_entropy
   geom_point(alpha=1, size=4) + #alpha controls transparency and helps when points are overlapping
-  theme_q2r() # +
+  theme_q2r()# +
+  oh #facet_wrap(~Timepoint)
 
 ##3D
 
 colfunc<-colorRampPalette(c("yellow","blue","white","red"))
-
+#View(metadata)
 metadata %>%
-  filter (Experiment == '21Pesticide') %>%  
+  drop_na(PC1_bc)%>%
+  filter (Experiment == '22NEW') %>%
+  #filter (Timepoint %in% c('22','22.1','22.2','22.3','22.4')) %>%
+  filter (TreatmentInoculum %in% c('Control','Decreased Larval Density')) %>%
+  #filter(TreatmentInoculum == "SummerEvolvedMicrobiome") %>%
   #mutate(pop=case_when(str_detect(PopCode,'^E')==T ~'Ecage',TRUE ~ 'Indoor')) %>%
-  #filter (CollectionTreatment == 'Starved') %>%
-  plot_ly(x = ~PC1_wu, y = ~PC2_wu, z = ~PC3_wu, 
+  filter (CollectionTreatment == 'Starved') %>%
+  plot_ly(x = ~PC1_bc, y = ~PC2_bc, z = ~PC3_bc, 
           type = 'scatter3d', 
           mode = 'markers', 
-          symbol = ~TreatmentInoculum, 
-          color = ~Timepoint, 
+          symbol = ~Timepoint, 
+          color = ~TreatmentInoculum, 
+          colors = c('red','black'),
           #colors = colfunc(8),
-          symbols = c('o','x'), 
+          #symbols = c('o', 'circle'), 
           marker = list(size = 6)) 
+View(metadata)
+####PERMANOVA####
+factor(metadata$Timepoint)
 
-###PERMANOVA
+View(metadata)
 
 statdata = metadata %>%
-  filter (Experiment == '21Pesticide') %>%  
-  #filter (CollectionTreatment == 'food') %>%
+  #filter (Experiment == '22NEW') %>%  
+  filter (Timepoint %in% c('22.1','22.2','22.6','22.7')) %>%
+  mutate(time_cat = case_when(Timepoint < 22.4 ~ "Early",
+                              Timepoint > 22.4 ~ "Late")) %>%
+  filter (TreatmentInoculum %in% c('ControlPigmentationSelection')) %>%
+  #filter (TreatmentInoculum %in% c('Control','Decreased Larval Density')) %>%
+  filter (CollectionTreatment == 'food') %>%
   #mutate(pop=case_when(str_detect(PopCode,'^E')==T ~'Ecage',TRUE ~ 'Indoor'), na.rm=TRUE) %>%
   filter(!is.na(PC1_bc))
-
+#View(statdata)
 adonis2(
-  statdata[ , c("PC1_uu", "PC2_uu", "PC3_uu")] ~ Timepoint*TreatmentInoculum,
+  statdata[ , c("PC1_bc", "PC2_bc", "PC3_bc")] ~ time_cat,
   data = statdata,
   method = "euc"
 )
+
+resSE.aov <- aov(shannon_entropy ~ time_cat, data = statdata)
+# Summary of the analysis
+summary(resSE.aov)
+
+resOF.aov <- aov(observed_features ~ time_cat, data = statdata)
+# Summary of the analysis
+summary(resOF.aov)
+
+t.test(shannon_entropy ~ time_cat, data = statdata)
+
 
 ##22NEW - starved - timextreatment ALL SIG for bc & wu 
 ##22NEW - food - timextreatment  ALL SIG for bc & wu / TP very sig interaction slightly for uu 
@@ -355,16 +388,21 @@ metadata$interaction <- factor(interaction(metadata$Timepoint, metadata$Treatmen
 levels(metadata$interaction)
     
 
-## line ploys divesity
+####line ploys divesity####
 
 metadata %>%
-  filter (Experiment == '22NEW') %>%
-  #filter (CollectionTreatment == 'Starved') %>%
-  #filter (TreatmentInoculum == 'Control') %>%
-  ggplot(aes(x=as.factor(Timepoint), y=observed_features, 
+  drop_na(PC1_bc)%>%
+  #filter (Experiment == '22NEW') %>%
+  #filter (Timepoint %in% c('22.6','22.7','22.1','22.2','22.3')) %>%
+  filter (TreatmentInoculum %in% c('Control','Decreased Larval Density', 'ControlPigmentationSelection')) %>%
+  #filter (TreatmentInoculum %in% c('ControlPigmentationSelection')) %>%
+  #filter (Experiment == '22SWAP') %>%
+  filter (CollectionTreatment == 'Starved') %>%
+  #filter (TreatmentInoculum == 'OutdoorMicrobiome') %>%
+  ggplot(aes(x=as.factor(Timepoint), y=shannon_entropy, 
              group=interaction(as.factor(TreatmentInoculum), as.factor(Timepoint)), 
-             color=as.factor(TreatmentInoculum))) +
-  geom_boxplot()+
+             fill=as.factor(TreatmentInoculum))) +
+  geom_boxplot() +
   #stat_summary(geom="errorbar", fun.data=mean_se, width=.1) +
   #stat_summary(geom="line", fun.data=mean) 
   #stat_summary(geom="point", fun.y=mean, size=6, shape=12) +
@@ -374,18 +412,102 @@ metadata %>%
     #comparisons = list(c("Adelie", "Gentoo")), 
     #map_signif_level=TRUE)
   #ylim(0,5)+
-  xlab("Time Point") +
+  xlab("Experimental Control") +
+  #facet_wrap(~Timepoint) +
   #scale_colour_manual(name = "Cage Treatment", 
                       #breaks = c("Control","Pesticide Addition"),
                       #labels = c("Control Populations","LB+ Populations", "AT+ Populations"),
                       #values = c("grey","red"))+
   theme_classic()  # try other themes like theme_bw() or theme_classic()
 
-  geom_signif(comparisons = list(c("A.c", "B.c"),
-                                 c("A.c", "A.d"),
-                                 c("B.c", "B.d"),
-                                 c("A.d", "B.d")),
-              test = "t.test", step_increase = 0.075,
-              map_signif_level = TRUE, tip_length = 0)
+# Compute the analysis of variance
+res.aov <- aov(weight ~ group, data = my_data)
+# Summary of the analysis
+summary(res.aov)
+
+
+#####taxa abundance plots
+
+{
+taxa=taxasumfamily
+taxa <-sweep(taxa, 2, colSums(taxa), `/`) * 100
+#view(result)
+
+#select_taxa <- c("Lactobacillaceae","Acetobacteraceae","Enterobacteriaceae","Leuconostocacea", "Enterococcaceae") 
+select_taxa <- c("Lactobacillaceae","Acetobacteraceae","Enterobacteriaceae","Leuconostocacea", "Enterococcaceae","Corynebacteriaceae", "Streptococcaceae", "Sphingobacteriaceae", "Weeksellaceae", "Pasteurellales; NA") 
+#select_taxa <- c("Lactobacillaceae; NA","Acetobacteraceae; Acetobacter","Enterobacteriaceae; NA","Providencia", "Lactobacillaceae; Lactobacillus","Leuconostocaceae; Weissella", "Enterococcus", "Wautersiella", "Corynebacterium", "Serratia") 
+taxa_test<- tibble::rownames_to_column(taxa, "names")
+result <- filter(taxa_test, grepl(paste(select_taxa, collapse="|"), names))
+result = t(result)
+result = result %>%
+  row_to_names(row_number = 1)
+
+
+m =metadata %>%
+  drop_na(PC1_bc)%>%
+  #filter (Experiment == '22LCD') %>%
+  filter (Timepoint %in% c('22','22.1','22.2','22.3')) %>%
+  filter (TreatmentInoculum %in% c('Control','ControlPigmentationSelection','Founder')) %>%
+  #filter(grepl('Control', TreatmentInoculum))%>%
+  #filter (TreatmentInoculum == 'Control')%>%
+  #filter (!CollectionTreatment == 'food') %>%
+  #filter (Timepoint == '22.5') %>%
+  as_data_frame() 
+#View(m)
+
+a=m%>% 
+  group_by(m$TreatmentInoculum, m$SampleID) %>% # add m$Timepoint, 
+  dplyr :: summarise(
+                     SampleID= SampleID,
+                     Timepoint = Timepoint,
+                     Experiment = Experiment) %>%
+                     #SampleType = CollectionTreatment) %>%
+                     #Population = pop) %>%
+  as_data_frame() %>%
+  column_to_rownames('m$SampleID')%>%
+  rename(Treatment = 'm$TreatmentInoculum')#%>%
+
+
+combined = merge(a, result, by=0)
+#View(result)
+combined = combined %>% 
+  pivot_longer(
+  cols = starts_with("Bacteria"),
+  names_to = c("Family"),
+  values_to = "RelativeAbundance")
+
+combined %>%
+  #filter (Experiment == '22SWAP') %>%
+  #filter (CollectionTreatment == 'Starved') %>%
+  #filter (!Treatment == 'Founder') %>%
+  ggplot(aes(x=as.factor(Timepoint), y=as.numeric(RelativeAbundance),
+             #group=interaction(as.factor(Timepoint), as.factor(Family)), 
+             fill=as.factor(Treatment))) +
+  geom_boxplot()+
+  #geom_bar(position="stack", stat="identity")+
+  #stat_summary(geom="errorbar", fun.data=mean_se, width=.1) +
+  #stat_summary(geom="line", fun.data=mean) 
+  #stat_summary(geom="point", fun.y=mean, size=6, shape=12) +
+  #geom_jitter(shape=19, width=0.15, height=0)+
+  #geom_signif(
+  # which groups should be compared?
+  #comparisons = list(c("Adelie", "Gentoo")), 
+  #map_signif_level=TRUE)
+  #ylim(0,5)+
+  xlab("Time Point") +
+  facet_wrap(~Family) +
+  #scale_colour_manual(name = "Cage Treatment", 
+  #breaks = c("Control","Pesticide Addition"),
+  #labels = c("Control Populations","LB+ Populations", "AT+ Populations"),
+  #values = c("grey","red"))+
+  theme_classic()  # try other themes like theme_bw() or theme_classic()
+
+#geom_signif(comparisons = list(c("A.c", "B.c"),
+#c("A.c", "A.d"),
+#c("B.c", "B.d"),
+#c("A.d", "B.d")),
+# test = "t.test", step_increase = 0.075,
+#map_signif_level = TRUE, tip_length = 0)
+}
 
 
